@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# 构建产物
+build/
+EthTicker.app/
+make_icon
+
+# 图标产物（由 make_icon.swift + iconutil 生成）
+AppIcon.icns
+AppIcon.iconset/
