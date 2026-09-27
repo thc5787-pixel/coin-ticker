@@ -1,0 +1,26 @@
+/* Menu */
+"menu.price.loading" = "Loading…";
+"menu.loginItem" = "Launch at Login";
+"menu.loginItem.enabled" = "Launch at Login (On)";
+"menu.loginItem.requiresApproval" = "Launch at Login (Approve in System Settings)";
+"menu.loginItem.disabled" = "Launch at Login (Off)";
+"menu.inputCoin" = "Enter Coin…";
+"menu.refresh" = "Refresh Now";
+"menu.quit" = "Quit";
+"menu.updatedAt" = "Updated %@";
+"menu.change24h" = "24h %@";
+"menu.offline" = "Network unavailable, retrying…";
+"menu.language" = "Language";
+"menu.language.system" = "Follow System";
+
+/* Alerts */
+"alert.inputCoin.title" = "Enter Coin";
+"alert.inputCoin.message" = "Enter a coin code, e.g. BTC, ETHUSDT";
+"alert.ok" = "OK";
+"alert.cancel" = "Cancel";
+"alert.error.title" = "Error";
+"alert.error.invalid" = "Invalid coin code: %@";
+"alert.error.network" = "Network unavailable, cannot verify coin";
+"alert.error.ok" = "OK";
+"alert.language.title" = "Language";
+"alert.language.message" = "Language changed. Restart the app to take effect.";

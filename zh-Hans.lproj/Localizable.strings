@@ -1,0 +1,26 @@
+/* 菜单 */
+"menu.price.loading" = "加载中…";
+"menu.loginItem" = "开机自启";
+"menu.loginItem.enabled" = "开机自启（已开启）";
+"menu.loginItem.requiresApproval" = "开机自启（需在系统设置允许）";
+"menu.loginItem.disabled" = "开机自启（未开启）";
+"menu.inputCoin" = "输入币种…";
+"menu.refresh" = "立即刷新";
+"menu.quit" = "退出";
+"menu.updatedAt" = "上次更新  %@";
+"menu.change24h" = "24h 涨跌  %@";
+"menu.offline" = "网络不可用，稍后自动重试";
+"menu.language" = "语言";
+"menu.language.system" = "跟随系统";
+
+/* 弹窗 */
+"alert.inputCoin.title" = "输入币种";
+"alert.inputCoin.message" = "输入币种代码，例如 BTC、ETHUSDT";
+"alert.ok" = "确定";
+"alert.cancel" = "取消";
+"alert.error.title" = "错误";
+"alert.error.invalid" = "无效的币种代码：%@";
+"alert.error.network" = "网络不可用，无法验证币种";
+"alert.error.ok" = "好";
+"alert.language.title" = "语言";
+"alert.language.message" = "语言已切换，重启应用后生效。";

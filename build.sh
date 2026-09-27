@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# EthTicker 构建脚本：编译源码 → 生成图标 → 组装 .app → ad-hoc 签名
+# CoinTicker 构建脚本：编译源码 → 生成图标 → 组装 .app → ad-hoc 签名
 # 用法:
-#   ./build.sh            # 仅构建到 build/EthTicker.app
+#   ./build.sh            # 仅构建到 build/CoinTicker.app
 #   ./build.sh --install  # 构建后安装到 /Applications 并重启
 set -euo pipefail
 
-APP_NAME="EthTicker"
+APP_NAME="CoinTicker"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$SRC_DIR/build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
@@ -29,6 +29,9 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BUILD_DIR/$APP_NAME"    "$APP_DIR/Contents/MacOS/"
 cp "$BUILD_DIR/AppIcon.icns" "$APP_DIR/Contents/Resources/"
 cp "$SRC_DIR/Info.plist"     "$APP_DIR/Contents/"
+mkdir -p "$APP_DIR/Contents/Resources/en.lproj" "$APP_DIR/Contents/Resources/zh-Hans.lproj"
+cp "$SRC_DIR/en.lproj/Localizable.strings"      "$APP_DIR/Contents/Resources/en.lproj/"
+cp "$SRC_DIR/zh-Hans.lproj/Localizable.strings" "$APP_DIR/Contents/Resources/zh-Hans.lproj/"
 
 echo "==> ad-hoc 签名"
 codesign --force --sign - "$APP_DIR"

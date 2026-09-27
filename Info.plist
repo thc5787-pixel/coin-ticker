@@ -3,17 +3,24 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>EthTicker</string>
+    <string>CoinTicker</string>
     <key>CFBundleDisplayName</key>
-    <string>EthTicker</string>
+    <string>CoinTicker</string>
     <key>CFBundleIdentifier</key>
-    <string>com.local.ethticker</string>
+    <string>com.local.cointicker</string>
     <key>CFBundleVersion</key>
-    <string>1.0</string>
+    <string>1.1</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>1.1</string>
     <key>CFBundleExecutable</key>
-    <string>EthTicker</string>
+    <string>CoinTicker</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>en</string>
+        <string>zh-Hans</string>
+    </array>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleIconFile</key>

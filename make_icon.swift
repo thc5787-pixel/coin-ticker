@@ -31,16 +31,16 @@ for (name, px) in sizes {
     let radius = s * 0.225
     let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
 
-    // 蓝紫渐变背景（以太坊风格）
-    let top = NSColor(calibratedRed: 0.24, green: 0.38, blue: 0.96, alpha: 1)
-    let bottom = NSColor(calibratedRed: 0.42, green: 0.25, blue: 0.82, alpha: 1)
+    // 金色渐变背景（中性币价风格）
+    let top = NSColor(calibratedRed: 0.98, green: 0.75, blue: 0.18, alpha: 1)
+    let bottom = NSColor(calibratedRed: 0.87, green: 0.53, blue: 0.08, alpha: 1)
     if let gradient = NSGradient(colors: [top, bottom]) {
         gradient.draw(in: path, angle: -90)
     }
 
-    // 白色 Ξ 符号
+    // 白色 $ 符号
     let font = NSFont.systemFont(ofSize: s * 0.58, weight: .bold)
-    let str = NSAttributedString(string: "Ξ", attributes: [
+    let str = NSAttributedString(string: "$", attributes: [
         .font: font, .foregroundColor: NSColor.white
     ])
     let sz = str.size()
