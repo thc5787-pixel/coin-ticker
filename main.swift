@@ -98,6 +98,29 @@ struct Coin {
     }
 }
 
+/// 自动获取焦点的输入框：被加入窗口后立即请求成为第一响应者
+final class AutoFocusTextField: NSTextField {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            self?.focus()
+        }
+    }
+
+    /// 请求成为第一响应者并将光标定位到输入框
+    func focus() {
+        guard let window = self.window, window.isVisible else { return }
+        // Menu bar apps can present an alert without becoming the active app.
+        // In that state makeFirstResponder silently fails even though the field
+        // is visible, so activate and key the alert before assigning focus.
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        guard window.makeFirstResponder(self) else { return }
+        selectText(nil)
+    }
+}
+
 final class Ticker: NSObject {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
@@ -423,9 +446,15 @@ final class Ticker: NSObject {
         alert.addButton(withTitle: L("alert.ok"))
         alert.addButton(withTitle: L("alert.cancel"))
 
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        let field = AutoFocusTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         field.placeholderString = "ETH"
         alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        // runModal presents the alert in a nested event loop. Schedule focus
+        // after it is on screen so the menu bar app and alert window are active.
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.async { field.focus() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { field.focus() }
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         guard let coin = Coin.make(from: field.stringValue) else {
