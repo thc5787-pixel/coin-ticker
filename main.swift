@@ -114,6 +114,7 @@ final class Ticker: NSObject {
     private let quitItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var currentCoin: Coin = Coin.make(from: "ETHUSDT")!
     private var timer: Timer?
+    private var fetchGeneration: UInt64 = 0
     private let formatter: NumberFormatter = {
         let f = NumberFormatter()
         f.numberStyle = .decimal
@@ -225,11 +226,15 @@ final class Ticker: NSObject {
         let key = "loginItemConfigured"
         let d = UserDefaults.standard
         if !d.bool(forKey: key) {
-            d.set(true, forKey: key)
-            do {
-                try SMAppService.mainApp.register()
-            } catch {
-                NSLog("SMAppService register error: %@", String(describing: error))
+            if SMAppService.mainApp.status == .enabled {
+                d.set(true, forKey: key)
+            } else {
+                do {
+                    try SMAppService.mainApp.register()
+                    d.set(true, forKey: key)
+                } catch {
+                    NSLog("SMAppService register error: %@", String(describing: error))
+                }
             }
         }
         updateLoginItemState()
@@ -297,16 +302,27 @@ final class Ticker: NSObject {
 
     // MARK: - 网络请求
     private func fetch() {
-        let symbol = currentCoin.binanceSymbol
+        fetchGeneration &+= 1
+        let generation = fetchGeneration
+        let coin = currentCoin
+        let symbol = coin.binanceSymbol
         let path = "/api/v3/ticker/24hr?symbol=\(symbol)"
         tryBinance(path: path, index: 0) { [weak self] dict in
+            guard let self else { return }
             guard let p = dict["lastPrice"] as? String, let price = Double(p),
                   let c = dict["priceChangePercent"] as? String, let change = Double(c) else {
-                self?.fetchFallback()
+                self.fetchFallback(for: coin, generation: generation)
                 return
             }
-            DispatchQueue.main.async { self?.update(price: price, change: change) }
+            DispatchQueue.main.async {
+                guard self.isCurrentFetch(generation, symbol: symbol) else { return }
+                self.update(price: price, change: change)
+            }
         }
+    }
+
+    private func isCurrentFetch(_ generation: UInt64, symbol: String) -> Bool {
+        generation == fetchGeneration && currentCoin.binanceSymbol == symbol
     }
 
     /// 依次尝试 Binance 主接口与备用接口，直到某个返回有效 JSON
@@ -324,19 +340,30 @@ final class Ticker: NSObject {
         }
     }
 
-    private func fetchFallback() {
-        guard let id = currentCoin.coingeckoId else {
-            DispatchQueue.main.async { self.showOffline() }
+    private func fetchFallback(for coin: Coin, generation: UInt64) {
+        let symbol = coin.binanceSymbol
+        guard let id = coin.coingeckoId else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isCurrentFetch(generation, symbol: symbol) else { return }
+                self.showOffline()
+            }
             return
         }
         request("https://api.coingecko.com/api/v3/simple/price?ids=\(id)&vs_currencies=usd&include_24hr_change=true") { [weak self] dict in
+            guard let self else { return }
             guard let e = dict[id] as? [String: Any],
                   let price = e["usd"] as? Double,
                   let change = e["usd_24h_change"] as? Double else {
-                DispatchQueue.main.async { self?.showOffline() }
+                DispatchQueue.main.async {
+                    guard self.isCurrentFetch(generation, symbol: symbol) else { return }
+                    self.showOffline()
+                }
                 return
             }
-            DispatchQueue.main.async { self?.update(price: price, change: change) }
+            DispatchQueue.main.async {
+                guard self.isCurrentFetch(generation, symbol: symbol) else { return }
+                self.update(price: price, change: change)
+            }
         }
     }
 
@@ -398,7 +425,6 @@ final class Ticker: NSObject {
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         field.placeholderString = "ETH"
-        field.stringValue = currentCoin.displaySymbol   // 预填当前币种代码（如 ETH）
         alert.accessoryView = field
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
