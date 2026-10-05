@@ -12,18 +12,8 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.name }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14   # Apple Silicon (M1) runner
-            arch: arm64
-            name: arm64
-          - runner: macos-13   # Intel runner
-            arch: x86_64
-            name: x86_64
+    name: Build (arm64)
+    runs-on: macos-14   # Apple Silicon (M1) runner
 
     steps:
       - name: Checkout
@@ -44,14 +34,14 @@ jobs:
       - name: Package (zip)
         run: |
           cd build
-          ditto -c -k --keepParent CoinTicker.app "../CoinTicker-${{ matrix.name }}.zip"
-          ls -lh "../CoinTicker-${{ matrix.name }}.zip"
+          ditto -c -k --keepParent CoinTicker.app "../CoinTicker-arm64.zip"
+          ls -lh "../CoinTicker-arm64.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CoinTicker-${{ matrix.name }}
-          path: CoinTicker-${{ matrix.name }}.zip
+          name: CoinTicker-arm64
+          path: CoinTicker-arm64.zip
           if-no-files-found: error
 
   release:
