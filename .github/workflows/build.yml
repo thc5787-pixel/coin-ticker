@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon (M1) runner
+            arch: arm64
+            name: arm64
+          - runner: macos-13   # Intel runner
+            arch: x86_64
+            name: x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swiftc --version
+          uname -m
+          xcode-select -p
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Verify signature
+        run: codesign --verify --deep --strict "build/CoinTicker.app"
+
+      - name: Package (zip)
+        run: |
+          cd build
+          ditto -c -k --keepParent CoinTicker.app "../CoinTicker-${{ matrix.name }}.zip"
+          ls -lh "../CoinTicker-${{ matrix.name }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CoinTicker-${{ matrix.name }}
+          path: CoinTicker-${{ matrix.name }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip
+          generate_release_notes: true
