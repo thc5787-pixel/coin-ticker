@@ -22,5 +22,3 @@
 "alert.error.invalid" = "Invalid coin code: %@";
 "alert.error.network" = "Network unavailable, cannot verify coin";
 "alert.error.ok" = "OK";
-"alert.language.title" = "Language";
-"alert.language.message" = "Language changed. Restart the app to take effect.";

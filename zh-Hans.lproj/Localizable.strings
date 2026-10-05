@@ -22,5 +22,3 @@
 "alert.error.invalid" = "无效的币种代码：%@";
 "alert.error.network" = "网络不可用，无法验证币种";
 "alert.error.ok" = "好";
-"alert.language.title" = "语言";
-"alert.language.message" = "语言已切换，重启应用后生效。";

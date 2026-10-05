@@ -138,13 +138,6 @@ final class Ticker: NSObject {
     private var currentCoin: Coin = Coin.make(from: "ETHUSDT")!
     private var timer: Timer?
     private var fetchGeneration: UInt64 = 0
-    private let formatter: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.minimumFractionDigits = 2
-        f.maximumFractionDigits = 2
-        return f
-    }()
 
     // Binance 主接口与备用接口（部分网络环境下主域名可能被屏蔽）
     private static let binanceHosts = [
@@ -406,11 +399,27 @@ final class Ticker: NSObject {
     }
 
     // MARK: - 更新显示
+    /// 自适应价格精度：高价保留 2 位小数，低价自动增加小数位（避免 SHIB 等显示为 $0.00）
+    private func formatPrice(_ price: Double) -> String {
+        let absPrice = abs(price)
+        let maxDigits: Int
+        if absPrice >= 1000 { maxDigits = 2 }
+        else if absPrice >= 1 { maxDigits = 4 }
+        else if absPrice >= 0.01 { maxDigits = 6 }
+        else { maxDigits = 8 }
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = 2
+        f.maximumFractionDigits = maxDigits
+        f.usesGroupingSeparator = true
+        return f.string(from: NSNumber(value: price)) ?? String(format: "%.*f", maxDigits, price)
+    }
+
     private func update(price: Double, change: Double) {
         let up = change >= 0
         let arrow = up ? "▲" : "▼"
         let color: NSColor = up ? .systemGreen : .systemRed
-        let priceStr = formatter.string(from: NSNumber(value: price)) ?? String(format: "%.2f", price)
+        let priceStr = formatPrice(price)
         let changeStr = String(format: "%+.2f%%", change)
 
         let symbol = currentCoin.displaySymbol
