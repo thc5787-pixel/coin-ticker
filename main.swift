@@ -121,6 +121,102 @@ final class AutoFocusTextField: NSTextField {
     }
 }
 
+private struct CoinValidationError: Error {
+    let message: String
+}
+
+final class CoinInputWindowController: NSObject {
+    let window: NSWindow
+    let field = AutoFocusTextField(frame: NSRect(x: 20, y: 78, width: 320, height: 24))
+    private let errorLabel = NSTextField(wrappingLabelWithString: "")
+    private let submitButton = NSButton(title: L("alert.ok"), target: nil, action: nil)
+    var onSubmit: ((String) -> Void)?
+    private(set) var isActive = true
+
+    override init() {
+        window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 166),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        super.init()
+        window.delegate = self
+        window.title = L("alert.inputCoin.title")
+        window.isReleasedWhenClosed = false
+
+        let content = window.contentView!
+        let hint = NSTextField(wrappingLabelWithString: L("alert.inputCoin.message"))
+        hint.frame = NSRect(x: 20, y: 126, width: 320, height: 18)
+        content.addSubview(hint)
+
+        field.placeholderString = "ETH"
+        content.addSubview(field)
+
+        errorLabel.frame = NSRect(x: 20, y: 48, width: 320, height: 24)
+        errorLabel.textColor = .systemRed
+        errorLabel.isHidden = true
+        content.addSubview(errorLabel)
+
+        let cancelButton = NSButton(title: L("alert.cancel"), target: self, action: #selector(cancel))
+        cancelButton.frame = NSRect(x: 170, y: 14, width: 80, height: 28)
+        cancelButton.bezelStyle = .rounded
+        content.addSubview(cancelButton)
+
+        submitButton.target = self
+        submitButton.action = #selector(submit)
+        submitButton.frame = NSRect(x: 260, y: 14, width: 80, height: 28)
+        submitButton.bezelStyle = .rounded
+        submitButton.keyEquivalent = "\r"
+        content.addSubview(submitButton)
+    }
+
+    func present() {
+        window.center()
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.runModal(for: window)
+    }
+
+    func showError(_ message: String) {
+        errorLabel.stringValue = message
+        errorLabel.textColor = .systemRed
+        errorLabel.isHidden = false
+        submitButton.isEnabled = true
+        field.isEnabled = true
+        field.focus()
+    }
+
+    func close() {
+        guard isActive else { return }
+        isActive = false
+        window.close()
+        NSApp.stopModal()
+    }
+
+    func setValidating(_ validating: Bool) {
+        submitButton.isEnabled = !validating
+        field.isEnabled = !validating
+        if validating {
+            errorLabel.stringValue = L("menu.price.loading")
+            errorLabel.textColor = .secondaryLabelColor
+            errorLabel.isHidden = false
+        } else {
+            errorLabel.textColor = .systemRed
+        }
+    }
+
+    @objc private func submit() { onSubmit?(field.stringValue) }
+    @objc private func cancel() { close() }
+}
+
+extension CoinInputWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        guard isActive else { return }
+        isActive = false
+        NSApp.stopModal()
+    }
+}
+
 final class Ticker: NSObject {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
@@ -138,6 +234,9 @@ final class Ticker: NSObject {
     private var currentCoin: Coin = Coin.make(from: "ETHUSDT")!
     private var timer: Timer?
     private var fetchGeneration: UInt64 = 0
+    private var coinSelectionGeneration: UInt64 = 0
+    private var fetchInProgress = false
+    private var fetchPending = false
 
     // Binance 主接口与备用接口（部分网络环境下主域名可能被屏蔽）
     private static let binanceHosts = [
@@ -318,6 +417,11 @@ final class Ticker: NSObject {
 
     // MARK: - 网络请求
     private func fetch() {
+        guard !fetchInProgress else {
+            fetchPending = true
+            return
+        }
+        fetchInProgress = true
         fetchGeneration &+= 1
         let generation = fetchGeneration
         let coin = currentCoin
@@ -327,14 +431,24 @@ final class Ticker: NSObject {
             guard let self else { return }
             guard let p = dict["lastPrice"] as? String, let price = Double(p),
                   let c = dict["priceChangePercent"] as? String, let change = Double(c) else {
-                self.fetchFallback(for: coin, generation: generation)
+                self.fetchFallback(for: coin, generation: generation) { [weak self] in
+                    self?.finishFetch()
+                }
                 return
             }
             DispatchQueue.main.async {
+                defer { self.finishFetch() }
                 guard self.isCurrentFetch(generation, symbol: symbol) else { return }
                 self.update(price: price, change: change)
             }
         }
+    }
+
+    private func finishFetch() {
+        fetchInProgress = false
+        guard fetchPending else { return }
+        fetchPending = false
+        fetch()
     }
 
     private func isCurrentFetch(_ generation: UInt64, symbol: String) -> Bool {
@@ -356,10 +470,11 @@ final class Ticker: NSObject {
         }
     }
 
-    private func fetchFallback(for coin: Coin, generation: UInt64) {
+    private func fetchFallback(for coin: Coin, generation: UInt64, completion: @escaping () -> Void) {
         let symbol = coin.binanceSymbol
         guard let id = coin.coingeckoId else {
             DispatchQueue.main.async { [weak self] in
+                defer { completion() }
                 guard let self, self.isCurrentFetch(generation, symbol: symbol) else { return }
                 self.showOffline()
             }
@@ -371,12 +486,14 @@ final class Ticker: NSObject {
                   let price = e["usd"] as? Double,
                   let change = e["usd_24h_change"] as? Double else {
                 DispatchQueue.main.async {
+                    defer { completion() }
                     guard self.isCurrentFetch(generation, symbol: symbol) else { return }
                     self.showOffline()
                 }
                 return
             }
             DispatchQueue.main.async {
+                defer { completion() }
                 guard self.isCurrentFetch(generation, symbol: symbol) else { return }
                 self.update(price: price, change: change)
             }
@@ -399,17 +516,22 @@ final class Ticker: NSObject {
     }
 
     // MARK: - 更新显示
-    /// 自适应价格精度：高价保留 2 位小数，低价自动增加小数位（避免 SHIB 等显示为 $0.00）
+    /// 普通币种保留 2 位；常见低价币保留 4 位，极低价格自动增加精度。
     private func formatPrice(_ price: Double) -> String {
         let absPrice = abs(price)
+        let fourDigitSymbols: Set<String> = ["XRP", "ADA", "DOGE", "TRX", "XLM", "HBAR", "DOT"]
+        let usesFourDigits = fourDigitSymbols.contains(currentCoin.base)
+        let minDigits = usesFourDigits ? 4 : 2
         let maxDigits: Int
-        if absPrice >= 1000 { maxDigits = 2 }
-        else if absPrice >= 1 { maxDigits = 4 }
-        else if absPrice >= 0.01 { maxDigits = 6 }
-        else { maxDigits = 8 }
+        if absPrice < 0.000001 { maxDigits = 12 }
+        else if absPrice < 0.0001 { maxDigits = 10 }
+        else if absPrice < 0.01 { maxDigits = 8 }
+        else if usesFourDigits { maxDigits = 4 }
+        else { maxDigits = 2 }
+
         let f = NumberFormatter()
         f.numberStyle = .decimal
-        f.minimumFractionDigits = 2
+        f.minimumFractionDigits = minDigits
         f.maximumFractionDigits = maxDigits
         f.usesGroupingSeparator = true
         return f.string(from: NSNumber(value: price)) ?? String(format: "%.*f", maxDigits, price)
@@ -449,43 +571,42 @@ final class Ticker: NSObject {
 
     // MARK: - 自定义币种
     @objc private func promptCustomCoin() {
-        let alert = NSAlert()
-        alert.messageText = L("alert.inputCoin.title")
-        alert.informativeText = L("alert.inputCoin.message")
-        alert.addButton(withTitle: L("alert.ok"))
-        alert.addButton(withTitle: L("alert.cancel"))
-
-        let field = AutoFocusTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        field.placeholderString = "ETH"
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        // runModal presents the alert in a nested event loop. Schedule focus
-        // after it is on screen so the menu bar app and alert window are active.
-        NSApp.activate(ignoringOtherApps: true)
-        DispatchQueue.main.async { field.focus() }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { field.focus() }
-
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard let coin = Coin.make(from: field.stringValue) else {
-            showError(String(format: L("alert.error.invalid"), field.stringValue))
-            return
+        let controller = CoinInputWindowController()
+        controller.onSubmit = { [weak self, weak controller] input in
+            guard let self, let controller else { return }
+            let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let coin = Coin.make(from: trimmed) else {
+                controller.showError(String(format: L("alert.error.invalid"), trimmed))
+                return
+            }
+            controller.setValidating(true)
+            self.validate(coin) { result in
+                switch result {
+                case .success:
+                    self.coinSelectionGeneration &+= 1
+                    self.apply(coin)
+                    controller.close()
+                case .failure(let error):
+                    controller.showError(error.message)
+                }
+            }
         }
-        let previous = currentCoin
-        apply(coin)                  // 立即切换，后台再校验
-        validate(coin, previous: previous)
+        controller.present()
     }
 
-    /// 后台异步校验币种；无效则回滚到之前的币种并提示
-    private func validate(_ coin: Coin, previous: Coin) {
+    /// Validate the requested market before changing the selected coin.
+    private func validate(_ coin: Coin, completion: @escaping (Result<Void, CoinValidationError>) -> Void) {
         let path = "/api/v3/ticker/24hr?symbol=\(coin.binanceSymbol)"
-        tryBinance(path: path, index: 0) { [weak self] dict in
-            guard let self else { return }
+        tryBinance(path: path, index: 0) { dict in
             let valid = (dict["lastPrice"] as? String) != nil && (dict["priceChangePercent"] as? String) != nil
             DispatchQueue.main.async {
-                guard self.currentCoin.binanceSymbol == coin.binanceSymbol else { return }
-                if valid { return }   // 校验通过，保持当前币种
-                self.apply(previous)  // 回滚
-                self.showError(dict.isEmpty ? L("alert.error.network") : String(format: L("alert.error.invalid"), coin.binanceSymbol))
+                if valid {
+                    completion(.success(()))
+                } else if dict.isEmpty {
+                    completion(.failure(CoinValidationError(message: L("alert.error.network"))))
+                } else {
+                    completion(.failure(CoinValidationError(message: String(format: L("alert.error.invalid"), coin.binanceSymbol))))
+                }
             }
         }
     }
