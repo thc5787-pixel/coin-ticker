@@ -23,7 +23,7 @@
 
 ## 构建
 
-需要 Xcode Command Line Tools（`swiftc`、`iconutil`、`codesign`）。
+需要 Xcode Command Line Tools（`swiftc`、`codesign`）和 Python 3（用于打包应用图标）。
 
 ```bash
 ./build.sh              # 构建到 build/CoinTicker.app

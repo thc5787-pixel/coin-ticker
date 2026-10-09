@@ -581,6 +581,9 @@ final class Ticker: NSObject {
             }
             controller.setValidating(true)
             self.validate(coin) { result in
+                // The user can close the window while the request is in flight.
+                // Ignore its result so a canceled selection cannot be applied later.
+                guard controller.isActive else { return }
                 switch result {
                 case .success:
                     self.coinSelectionGeneration &+= 1

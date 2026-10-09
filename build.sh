@@ -18,7 +18,7 @@ mkdir -p "$BUILD_DIR/Contents/MacOS" "$BUILD_DIR/Contents/Resources"
 echo "==> 生成应用图标（AppIcon.iconset → AppIcon.icns）"
 swiftc -O "$SRC_DIR/make_icon.swift" -o "$BUILD_DIR/make_icon"
 (cd "$BUILD_DIR" && ./make_icon)
-iconutil -c icns "$BUILD_DIR/AppIcon.iconset" -o "$BUILD_DIR/AppIcon.icns"
+python3 "$SRC_DIR/make_icns.py" "$BUILD_DIR/AppIcon.iconset" "$BUILD_DIR/AppIcon.icns"
 
 echo "==> 编译主程序（$ARCH, macOS 13.0+）"
 swiftc -O -target "$ARCH-apple-macos13.0" "$SRC_DIR/main.swift" -o "$BUILD_DIR/$APP_NAME"
