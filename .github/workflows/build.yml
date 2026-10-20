@@ -25,6 +25,9 @@ jobs:
           uname -m
           xcode-select -p
 
+      - name: Test
+        run: ./test.sh
+
       - name: Build
         run: ./build.sh
 

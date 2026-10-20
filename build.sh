@@ -21,7 +21,7 @@ swiftc -O "$SRC_DIR/make_icon.swift" -o "$BUILD_DIR/make_icon"
 python3 "$SRC_DIR/make_icns.py" "$BUILD_DIR/AppIcon.iconset" "$BUILD_DIR/AppIcon.icns"
 
 echo "==> 编译主程序（$ARCH, macOS 13.0+）"
-swiftc -O -target "$ARCH-apple-macos13.0" "$SRC_DIR/main.swift" -o "$BUILD_DIR/$APP_NAME"
+swiftc -O -target "$ARCH-apple-macos13.0" "$SRC_DIR/main.swift" "$SRC_DIR/StockContract.swift" -o "$BUILD_DIR/$APP_NAME"
 
 echo "==> 组装 $APP_NAME.app"
 rm -rf "$APP_DIR"
