@@ -104,7 +104,10 @@ enum PriceFormatter {
     }
 
     /// 美股合约固定按美元两位小数展示。
-    static func stock(_ price: Double, locale: Locale = Locale(identifier: "en_US_POSIX")) -> String {
+    ///
+    /// 使用 `en_US` 而非 `en_US_POSIX`：后者不保证千分位分组，
+    /// macOS 14 与更新版本的 Foundation 输出会不一致。
+    static func stock(_ price: Double, locale: Locale = Locale(identifier: "en_US")) -> String {
         let f = NumberFormatter()
         f.numberStyle = .decimal
         f.locale = locale

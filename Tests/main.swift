@@ -224,17 +224,21 @@ expect(SpotQuote.parse(symbol: "ETHUSDT", response: [
 
 // MARK: - Price formatting
 
-let posix = Locale(identifier: "en_US_POSIX")
-expect(PriceFormatter.crypto(1234.5, base: "ETH", locale: posix) == "1,234.50",
+// en_US_POSIX 在 macOS 14 的 Foundation 上不保证千分位分组，
+// 因此这里用行为稳定的 en_US 断言用户可见格式。
+let enUS = Locale(identifier: "en_US")
+expect(PriceFormatter.crypto(1234.5, base: "ETH", locale: enUS) == "1,234.50",
        "formats a normal crypto price with two decimals")
-expect(PriceFormatter.crypto(0.5, base: "XRP", locale: posix) == "0.5000",
+expect(PriceFormatter.crypto(0.5, base: "XRP", locale: enUS) == "0.5000",
        "formats a low-priced coin with four decimals")
-expect(PriceFormatter.crypto(0.0000012345, base: "DOGE", locale: posix) == "0.0000012345",
+expect(PriceFormatter.crypto(0.0000012345, base: "DOGE", locale: enUS) == "0.0000012345",
        "formats a very small price with adaptive precision")
-expect(PriceFormatter.stock(344.01, locale: posix) == "344.01",
+expect(PriceFormatter.stock(344.01, locale: enUS) == "344.01",
        "formats a stock price with two decimals")
-expect(PriceFormatter.stock(1234.5, locale: posix) == "1,234.50",
+expect(PriceFormatter.stock(1234.5, locale: enUS) == "1,234.50",
        "formats a stock price with grouping")
+expect(PriceFormatter.stock(1234.5) == "1,234.50",
+       "stock formatting defaults to grouped US dollars")
 
 // MARK: - Change formatting
 
