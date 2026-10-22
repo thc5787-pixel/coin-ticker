@@ -6,5 +6,5 @@ SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-swiftc "$SRC_DIR/StockContract.swift" "$SRC_DIR/Tests/main.swift" -o "$TMP_DIR/stock-contract-tests"
-"$TMP_DIR/stock-contract-tests"
+swiftc "$SRC_DIR/StockContract.swift" "$SRC_DIR/Coin.swift" "$SRC_DIR/SpotQuote.swift" "$SRC_DIR/MarketSelection.swift" "$SRC_DIR/Localization.swift" "$SRC_DIR/Tests/main.swift" -o "$TMP_DIR/cointicker-tests"
+"$TMP_DIR/cointicker-tests"

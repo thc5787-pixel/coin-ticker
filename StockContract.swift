@@ -6,16 +6,26 @@ struct StockContractQuote: Equatable {
     let price: Double
     let changePercent: Double
 
-    /// 判断 exchangeInfo 中的交易对是否为可交易的 USDT 美股永续合约。
+    /// 支持的美股永续计价币。
+    static let supportedQuoteAssets: Set<String> = ["USDT", "USD1"]
+
+    /// 判断 exchangeInfo 中的交易对是否为可交易的美股永续合约。
     static func isEquitySymbol(_ symbol: String, in exchangeInfo: [String: Any]) -> Bool {
-        guard let entries = exchangeInfo["symbols"] as? [[String: Any]] else { return false }
-        return entries.contains {
-            $0["symbol"] as? String == symbol &&
-            $0["contractType"] as? String == "TRADIFI_PERPETUAL" &&
-            $0["underlyingType"] as? String == "EQUITY" &&
-            $0["quoteAsset"] as? String == "USDT" &&
-            $0["status"] as? String == "TRADING"
-        }
+        equitySymbols(in: exchangeInfo).contains(symbol)
+    }
+
+    /// 收集 exchangeInfo 中所有可交易的美股永续合约 symbol。
+    static func equitySymbols(in exchangeInfo: [String: Any]) -> Set<String> {
+        guard let entries = exchangeInfo["symbols"] as? [[String: Any]] else { return [] }
+        return Set(entries.compactMap { entry in
+            guard entry["contractType"] as? String == "TRADIFI_PERPETUAL",
+                  entry["underlyingType"] as? String == "EQUITY",
+                  let quote = entry["quoteAsset"] as? String,
+                  supportedQuoteAssets.contains(quote),
+                  entry["status"] as? String == "TRADING",
+                  let symbol = entry["symbol"] as? String else { return nil }
+            return symbol
+        })
     }
 
     static func parse(symbol: String, response: [String: Any]) -> StockContractQuote? {

@@ -11,15 +11,18 @@
 "menu.change24h" = "24h 涨跌  %@";
 "menu.stockContract" = "美股合约";
 "menu.offline" = "网络不可用，稍后自动重试";
+"menu.offlineStale" = "网络不可用，显示上次价格";
 "menu.language" = "语言";
 "menu.language.system" = "跟随系统";
 
 /* 弹窗 */
 "alert.inputCoin.title" = "输入代码";
-"alert.inputCoin.message" = "输入代码，例如 BTC、ETHUSDT、AAPLUSDT";
+"alert.inputCoin.message" = "输入代码，例如 BTC、ETHUSDT、AAPLUSDT；可用右侧「市场」指定现货或美股合约。";
+"alert.market" = "市场";
+"alert.market.auto" = "自动识别";
+"alert.market.spot" = "现货";
+"alert.market.stock" = "美股合约";
 "alert.ok" = "确定";
 "alert.cancel" = "取消";
-"alert.error.title" = "错误";
 "alert.error.invalid" = "无效的代码：%@";
-"alert.error.network" = "网络不可用，无法验证币种";
-"alert.error.ok" = "好";
+"alert.error.network" = "网络不可用，无法验证代码";

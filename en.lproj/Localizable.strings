@@ -11,15 +11,18 @@
 "menu.change24h" = "24h %@";
 "menu.stockContract" = "Equity Perp";
 "menu.offline" = "Network unavailable, retrying…";
+"menu.offlineStale" = "Network unavailable — showing last price";
 "menu.language" = "Language";
 "menu.language.system" = "Follow System";
 
 /* Alerts */
 "alert.inputCoin.title" = "Enter Code";
-"alert.inputCoin.message" = "Enter a Code, e.g. BTC, ETHUSDT, AAPLUSDT";
+"alert.inputCoin.message" = "Enter a Code, e.g. BTC, ETHUSDT, AAPLUSDT. Use Market to choose Spot or Equity Perp.";
+"alert.market" = "Market";
+"alert.market.auto" = "Auto Detect";
+"alert.market.spot" = "Spot";
+"alert.market.stock" = "Equity Perp";
 "alert.ok" = "OK";
 "alert.cancel" = "Cancel";
-"alert.error.title" = "Error";
 "alert.error.invalid" = "Invalid code: %@";
-"alert.error.network" = "Network unavailable, cannot verify coin";
-"alert.error.ok" = "OK";
+"alert.error.network" = "Network unavailable, cannot verify code";
