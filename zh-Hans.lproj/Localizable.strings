@@ -11,7 +11,6 @@
 "menu.change24h" = "24h 涨跌  %@";
 "menu.stockContract" = "美股合约";
 "menu.offline" = "网络不可用，稍后自动重试";
-"menu.offlineStale" = "网络不可用，显示上次价格";
 "menu.language" = "语言";
 "menu.language.system" = "跟随系统";
 

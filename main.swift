@@ -568,8 +568,10 @@ final class Ticker: NSObject {
     }
 
     private func showOffline() {
-        // 短暂断网时保留上一次价格；只有从未取到价格时才显示占位符。
+        // 断网时不展示过期价格，避免把旧报价误认为实时行情。
+        cryptoQuote = nil
         cryptoUnavailable = true
+        lastUpdated = nil
         render()
     }
 
@@ -586,13 +588,8 @@ final class Ticker: NSObject {
         if let quote = cryptoQuote {
             appendQuote(to: title, symbol: currentCoin.displaySymbol,
                         priceText: priceText, change: quote.change, font: baseFont)
-            if cryptoUnavailable {
-                title.append(NSAttributedString(string: " ⚠", attributes: [
-                    .font: baseFont,
-                    .foregroundColor: NSColor.systemOrange,
-                ]))
-            }
         } else {
+            // 离线时菜单栏保持与 4373b43 一致：只显示代码与省略号，不显示旧价格。
             title.append(NSAttributedString(string: "\(currentCoin.displaySymbol) …",
                 attributes: [.font: baseFont]))
         }
@@ -604,11 +601,9 @@ final class Ticker: NSObject {
         coinGeckoItem.isHidden = currentCoin.market == .stockContract
 
         if let quote = cryptoQuote {
-            let changeStr = ChangeFormatter.text(quote.change)
             priceMenuItem.title = "\(pairLabel)  $\(priceText)"
-            changeMenuItem.title = cryptoUnavailable
-                ? L("menu.offlineStale")
-                : String(format: L("menu.change24h"), changeStr)
+            changeMenuItem.title = String(format: L("menu.change24h"),
+                                           ChangeFormatter.text(quote.change))
         } else {
             priceMenuItem.title = cryptoUnavailable ? L("menu.offline") : L("menu.price.loading")
             changeMenuItem.title = ""
@@ -619,7 +614,7 @@ final class Ticker: NSObject {
             df.dateFormat = "HH:mm:ss"
             updateMenuItem.title = String(format: L("menu.updatedAt"), df.string(from: lastUpdated))
         } else {
-            updateMenuItem.title = cryptoUnavailable ? String(format: L("menu.updatedAt"), "--:--:--") : ""
+            updateMenuItem.title = ""
         }
     }
 
