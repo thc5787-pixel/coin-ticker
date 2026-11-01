@@ -190,6 +190,18 @@ expect(Coin.make(from: "BTCUSDT")?.coingeckoId == "bitcoin",
 expect(Coin.make(from: "SPCXUSD1")?.base == "SPCX" && Coin.make(from: "SPCXUSD1")?.quote == "USD1",
        "parses a USD1-quoted equity contract")
 expect(Coin.make(from: "") == nil, "rejects empty input")
+expect(Coin.make(from: "AR/BTC")?.base == "AR" && Coin.make(from: "AR/BTC")?.quote == "BTC",
+       "honors an explicit separator for a short base with a BTC quote")
+expect(Coin.make(from: "op-eth")?.binanceSymbol == "OPETH",
+       "honors a dash separator for a short base with an ETH quote")
+expect(Coin.make(from: "ETH/USDT")?.base == "ETH" && Coin.make(from: "ETH/USDT")?.quote == "USDT",
+       "splits a slash-separated pair")
+expect(Coin.make(from: "ETH/USDT")?.priceLabel("1,234.50") == "$1,234.50",
+       "labels a stablecoin-quoted price with $")
+expect(Coin.make(from: "ETH/BTC")?.priceLabel("0.03456") == "0.03456 BTC",
+       "labels a BTC-quoted price with its quote code")
+expect(Coin.make(from: "BTC/EUR")?.priceLabel("90,000.00") == "90,000.00 EUR",
+       "labels a EUR-quoted price with its quote code")
 
 // MARK: - Spot quote parsing
 
@@ -233,6 +245,10 @@ expect(PriceFormatter.crypto(0.5, base: "XRP", locale: enUS) == "0.5000",
        "formats a low-priced coin with four decimals")
 expect(PriceFormatter.crypto(0.0000012345, base: "DOGE", locale: enUS) == "0.0000012345",
        "formats a very small price with adaptive precision")
+expect(PriceFormatter.crypto(0.03456, base: "ETH", quote: "BTC", locale: enUS) == "0.03456",
+       "keeps significant digits for a BTC-quoted price")
+expect(PriceFormatter.crypto(0.2, base: "BNB", quote: "ETH", locale: enUS) == "0.2000",
+       "pads an ETH-quoted price to four significant digits")
 expect(PriceFormatter.stock(344.01, locale: enUS) == "344.01",
        "formats a stock price with two decimals")
 expect(PriceFormatter.stock(1234.5, locale: enUS) == "1,234.50",

@@ -18,6 +18,17 @@ struct Coin {
     var pair: String { "\(base)/\(quote)" }
     var tradePath: String { "\(base)_\(quote)" }
 
+    /// 以美元或美元稳定币计价的交易对显示 "$"。
+    static let usdQuoteCurrencies: Set<String> = [
+        "USD", "USDT", "USDC", "FDUSD", "BUSD", "TUSD", "USDS", "USD1", "DAI",
+    ]
+    var isUSDQuoted: Bool { Self.usdQuoteCurrencies.contains(quote) }
+
+    /// 带计价单位的价格文本：美元计价为 "$1,234.50"，其他为 "0.03456 BTC"。
+    func priceLabel(_ priceText: String) -> String {
+        isUSDQuoted ? "$\(priceText)" : "\(priceText) \(quote)"
+    }
+
     /// 常见计价币（用于自动拆分 base/quote）。
     static let quoteCurrencies = [
         "USDT", "USDC", "FDUSD", "BUSD", "TUSD", "USDS", "USD1", "DAI",
@@ -26,7 +37,7 @@ struct Coin {
     ]
 
     /// 加密资产计价币：简称可能本身就是以它们结尾的资产名（WBTC / WBETH）。
-    private static let cryptoQuoteCurrencies: Set<String> = ["BTC", "ETH", "BNB"]
+    static let cryptoQuoteCurrencies: Set<String> = ["BTC", "ETH", "BNB"]
 
     /// 常见币种的 CoinGecko 资产 id（仅 USDT 交易对需要回退）。
     static let coingeckoMap: [String: String] = [
@@ -54,6 +65,15 @@ struct Coin {
 
     /// 从用户输入解析币种：支持 "ETH"、"ethusdt"、"ETH/USDT"、"ETH-USDT" 等。
     static func make(from input: String) -> Coin? {
+        // 用户写了分隔符（"AR/BTC"、"OP-ETH"）时，直接按分隔符拆分，不再猜测。
+        let parts = input.uppercased()
+            .split(whereSeparator: { !($0.isLetter || $0.isNumber) })
+            .map(String.init)
+        if parts.count == 2 {
+            let symbol = parts[0] + parts[1]
+            return Coin(base: parts[0], quote: parts[1], coingeckoId: coingeckoMap[symbol])
+        }
+
         let cleaned = input.uppercased().filter { $0.isLetter || $0.isNumber }
         guard !cleaned.isEmpty else { return nil }
 
@@ -83,7 +103,19 @@ enum PriceFormatter {
     ]
 
     /// 普通币种保留 2 位；常见低价币保留 4 位，极低价格自动增加精度。
-    static func crypto(_ price: Double, base: String, locale: Locale = .current) -> String {
+    static func crypto(_ price: Double, base: String, quote: String = "USDT",
+                       locale: Locale = .current) -> String {
+        // BTC/ETH/BNB 计价的价格通常远小于 1，按有效数字展示，避免 0.03456 变成 0.03。
+        if Coin.cryptoQuoteCurrencies.contains(quote) {
+            let f = NumberFormatter()
+            f.numberStyle = .decimal
+            f.locale = locale
+            f.usesSignificantDigits = true
+            f.minimumSignificantDigits = 4
+            f.maximumSignificantDigits = 6
+            f.usesGroupingSeparator = true
+            return f.string(from: NSNumber(value: price)) ?? String(format: "%g", price)
+        }
         let absPrice = abs(price)
         let usesFourDigits = fourDigitSymbols.contains(base)
         let minDigits = usesFourDigits ? 4 : 2
