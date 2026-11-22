@@ -16,7 +16,6 @@ struct Coin {
     var binanceSymbol: String { base + quote }
     var displaySymbol: String { base }
     var pair: String { "\(base)/\(quote)" }
-    var tradePath: String { "\(base)_\(quote)" }
 
     /// 以美元或美元稳定币计价的交易对显示 "$"。
     static let usdQuoteCurrencies: Set<String> = [
@@ -36,8 +35,26 @@ struct Coin {
         "BTC", "ETH", "BNB",
     ]
 
-    /// 加密资产计价币：简称可能本身就是以它们结尾的资产名（WBTC / WBETH）。
+    /// 加密资产计价币（BTC / ETH / BNB 计价的价格按有效数字展示）。
     static let cryptoQuoteCurrencies: Set<String> = ["BTC", "ETH", "BNB"]
+
+    /// 名称恰好以 BTC/ETH/BNB 结尾、剩余部分有 2 个以上字符的完整资产名（不能拆成 "WB/ETH"）。
+    /// 剩余只有 1 个字符的（WBTC / BETH / WETH）由拆分规则本身保留为整体；
+    /// "ARBTC"、"OPETH" 这类 2 字母 base 仍按 AR/BTC、OP/ETH 拆分。
+    static let wholeAssetNames: Set<String> = ["WBETH"]
+
+    /// URL 中 symbol 参数允许的字符：只保留 ASCII 字母数字，其余（中文、带重音字母）百分号编码，
+    /// 避免 macOS 13 上 `URL(string:)` 因非 ASCII 字符返回 nil。
+    private static let urlSafeCharacters = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+
+    static func urlEscaped(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: urlSafeCharacters) ?? value
+    }
+
+    /// 用于拼接请求 URL 的 symbol。
+    var urlSymbol: String { Self.urlEscaped(binanceSymbol) }
+    var urlTradePath: String { "\(Self.urlEscaped(base))_\(Self.urlEscaped(quote))" }
 
     /// 常见币种的 CoinGecko 资产 id（仅 USDT 交易对需要回退）。
     static let coingeckoMap: [String: String] = [
@@ -79,14 +96,11 @@ struct Coin {
 
         var base = cleaned
         var quote = "USDT"
-        for q in quoteCurrencies {
+        for q in quoteCurrencies where !wholeAssetNames.contains(cleaned) {
             guard cleaned.hasSuffix(q), cleaned.count > q.count else { continue }
             let candidate = String(cleaned.dropLast(q.count))
-            // WBTC / WBETH 这类包装资产的简称：剩余部分只有 1-2 个字符时，
-            // 整体更可能是 base（默认 /USDT），而不是 "W/BTC"。
-            if cryptoQuoteCurrencies.contains(q), candidate.count < 3 {
-                continue
-            }
+            // 单字符 base 配加密计价币几乎都是资产名本身（WBTC、BETH、WETH），按 /USDT 处理。
+            if cryptoQuoteCurrencies.contains(q), candidate.count < 2 { continue }
             base = candidate
             quote = q
             break
@@ -94,6 +108,28 @@ struct Coin {
         let symbol = base + quote
         return Coin(base: base, quote: quote, coingeckoId: coingeckoMap[symbol])
     }
+
+    /// 还原 UserDefaults 中保存的币种。
+    ///
+    /// 当前版本保存 "AR/BTC" 形式，按分隔符原样拆分；1.1.3 及更早版本保存的是不带分隔符的
+    /// `binanceSymbol`，必须沿用当时的拆分规则（第一个匹配的计价币后缀），
+    /// 否则 "WBTC"（当时即 W/BTC）等旧值会在升级后变成另一个交易对。
+    static func restore(saved: String) -> Coin? {
+        let upper = saved.uppercased()
+        if upper.contains(where: { !($0.isLetter || $0.isNumber) }) {
+            return make(from: saved)
+        }
+        guard !upper.isEmpty else { return nil }
+        for q in quoteCurrencies where upper.hasSuffix(q) && upper.count > q.count {
+            let base = String(upper.dropLast(q.count))
+            return Coin(base: base, quote: q, coingeckoId: coingeckoMap[upper])
+        }
+        return Coin(base: upper, quote: "USDT", coingeckoId: coingeckoMap[upper + "USDT"])
+    }
+
+    /// 价格数字的格式：带 "$" 前缀的美元价格固定美式写法（"$1,234.50"），
+    /// 其他计价币按系统地区格式（"0,03456 BTC"）。现货与美股合约共用同一规则。
+    var priceLocale: Locale { isUSDQuoted ? Locale(identifier: "en_US") : .current }
 }
 
 /// 菜单栏价格格式化。
@@ -135,7 +171,7 @@ enum PriceFormatter {
         return f.string(from: NSNumber(value: price)) ?? String(format: "%.*f", maxDigits, price)
     }
 
-    /// 美股合约固定按美元两位小数展示。
+    /// 美股合约固定按美元两位小数展示（locale 由调用方按 `Coin.priceLocale` 传入）。
     ///
     /// 使用 `en_US` 而非 `en_US_POSIX`：后者不保证千分位分组，
     /// macOS 14 与更新版本的 Foundation 输出会不一致。

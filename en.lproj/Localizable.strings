@@ -25,3 +25,4 @@
 "alert.cancel" = "Cancel";
 "alert.error.invalid" = "Invalid code: %@";
 "alert.error.network" = "Network unavailable, cannot verify code";
+"alert.error.notTrading" = "%@ is not currently trading";

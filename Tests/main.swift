@@ -128,6 +128,67 @@ expect(SpotValidation.classify(status: 400, symbol: "NOPEUSDT", response: ["code
        "classifies a -1121 response as invalid")
 expect(SpotValidation.classify(status: 403, symbol: "MDTUSDT", response: [:]) == nil,
        "leaves non-symbol errors for host fallback")
+expect(SpotValidation.classify(status: 400, symbol: "NOPE", response: ["code": -1100]) == .invalid,
+       "classifies an illegal-characters response as invalid")
+expect(SpotValidation.classify(status: 429, symbol: "MDTUSDT", response: ["code": -1003]) == nil,
+       "leaves rate limiting for host fallback")
+expect(SpotValidation.classify(status: 418, symbol: "MDTUSDT", response: ["code": -1003]) == nil,
+       "leaves an IP ban for host fallback")
+expect(SpotValidation.classify(status: 400, symbol: "MDTUSDT", response: [:]) == nil,
+       "leaves a 400 without a Binance code for host fallback")
+expect(SpotValidation.classify(status: nil, symbol: "MDTUSDT", response: [:]) == nil,
+       "leaves a transport failure for host fallback")
+expect(BinanceResponse.isDefinitiveRejection(status: 400, response: ["code": -1121, "msg": "Invalid symbol."]),
+       "treats -1121 as a definitive rejection")
+expect(!BinanceResponse.isDefinitiveRejection(status: 503, response: ["code": -1001]),
+       "does not treat a server error as a definitive rejection")
+expect(!BinanceResponse.isDefinitiveRejection(status: 451, response: [
+    "code": 0, "msg": "Service unavailable from a restricted location",
+]), "does not treat a restricted-location response as an invalid symbol")
+expect(SpotValidation.classify(status: 451, symbol: "BTCUSDT", response: ["code": 0]) == nil,
+       "leaves a restricted-location response for host fallback")
+expect(!BinanceResponse.isDefinitiveRejection(status: 400, response: ["code": -1102]),
+       "does not treat an unrelated 400 error code as an invalid symbol")
+
+// MARK: - Preferred host race
+
+var primaryWins = PreferredHostRace<Int>()
+if case .pending = primaryWins.record(2, from: .fallback) {} else { expect(false, "fallback waits for primary") }
+if case .done(1?) = primaryWins.record(1, from: .primary) {
+    expect(true, "primary result wins over an earlier fallback result")
+} else { expect(false, "primary result wins over an earlier fallback result") }
+var primaryFails = PreferredHostRace<Int>()
+_ = primaryFails.record(2, from: .fallback)
+if case .done(2?) = primaryFails.record(nil, from: .primary) {
+    expect(true, "uses the fallback result after primary fails")
+} else { expect(false, "uses the fallback result after primary fails") }
+var graceRace = PreferredHostRace<Int>()
+_ = graceRace.record(2, from: .fallback)
+if case .done(2?) = graceRace.graceExpired() {
+    expect(true, "uses the fallback result after the grace period")
+} else { expect(false, "uses the fallback result after the grace period") }
+if case .pending = graceRace.record(1, from: .primary) {
+    expect(true, "ignores primary after the race finished")
+} else { expect(false, "ignores primary after the race finished") }
+var bothFail = PreferredHostRace<Int>()
+_ = bothFail.record(nil, from: .primary)
+if case .done(nil) = bothFail.record(nil, from: .fallback) {
+    expect(true, "reports no result when both hosts fail")
+} else { expect(false, "reports no result when both hosts fail") }
+var noGrace = PreferredHostRace<Int>()
+_ = noGrace.record(nil, from: .fallback)
+if case .pending = noGrace.graceExpired() {
+    expect(true, "grace does not finish without a fallback result")
+} else { expect(false, "grace does not finish without a fallback result") }
+
+// MARK: - Stock exchangeInfo classification
+
+expect(StockValidation.equitySymbols(status: 200, response: exchangeInfo) == ["AAPLUSDT", "SPCXUSD1"],
+       "collects equity symbols from a successful exchangeInfo response")
+expect(StockValidation.equitySymbols(status: 200, response: [:]) == nil,
+       "ignores a 200 exchangeInfo response without symbols")
+expect(StockValidation.equitySymbols(status: 403, response: exchangeInfo) == nil,
+       "ignores a non-200 exchangeInfo response")
 expect(SpotValidation.classify(status: 200, symbol: "MDTUSDT", response: [
     "symbols": [[ "symbol": "OTHERUSDT", "status": "TRADING" ]]
 ]) == nil, "ignores a response for a different symbol")
@@ -140,8 +201,10 @@ expect(MarketSelection.resolve(preference: .auto, spot: .valid, stock: .invalid)
        "auto uses spot when the spot symbol is trading")
 expect(MarketSelection.resolve(preference: .auto, spot: .notTrading, stock: .valid) == .stock,
        "auto prefers a trading equity perp over a halted spot symbol")
-expect(MarketSelection.resolve(preference: .auto, spot: .notTrading, stock: .invalid) == .spot,
-       "auto keeps a halted spot symbol when no equity perp exists")
+expect(MarketSelection.resolve(preference: .auto, spot: .notTrading, stock: .invalid) == .notTrading,
+       "auto reports a halted spot symbol when no equity perp exists")
+expect(MarketSelection.resolve(preference: .auto, spot: .notTrading, stock: .notTrading) == .notTrading,
+       "auto reports halted when neither market is trading")
 expect(MarketSelection.resolve(preference: .auto, spot: .notTrading, stock: .network) == .network,
        "auto does not guess when the equity check is unavailable")
 expect(MarketSelection.resolve(preference: .auto, spot: .invalid, stock: .valid) == .stock,
@@ -154,8 +217,10 @@ expect(MarketSelection.resolve(preference: .auto, spot: .network, stock: .invali
        "auto reports network when spot is unreachable and stock is invalid")
 expect(MarketSelection.resolve(preference: .auto, spot: .network, stock: .network) == .network,
        "auto reports network when both checks fail")
-expect(MarketSelection.resolve(preference: .spot, spot: .notTrading, stock: .invalid) == .spot,
-       "explicit spot accepts a halted spot symbol")
+expect(MarketSelection.resolve(preference: .spot, spot: .notTrading, stock: .invalid) == .notTrading,
+       "explicit spot rejects a halted spot symbol instead of showing a frozen price")
+expect(MarketSelection.resolve(preference: .spot, spot: .valid, stock: .invalid) == .spot,
+       "explicit spot accepts a trading spot symbol")
 expect(MarketSelection.resolve(preference: .spot, spot: .invalid, stock: .valid) == .invalid,
        "explicit spot does not fall back to stock")
 expect(MarketSelection.resolve(preference: .stock, spot: .valid, stock: .valid) == .stock,
@@ -196,6 +261,46 @@ expect(Coin.make(from: "op-eth")?.binanceSymbol == "OPETH",
        "honors a dash separator for a short base with an ETH quote")
 expect(Coin.make(from: "ETH/USDT")?.base == "ETH" && Coin.make(from: "ETH/USDT")?.quote == "USDT",
        "splits a slash-separated pair")
+expect(Coin.make(from: "ARBTC")?.base == "AR" && Coin.make(from: "ARBTC")?.quote == "BTC",
+       "splits a short base from a BTC quote without a separator")
+expect(Coin.make(from: "OPETH")?.base == "OP" && Coin.make(from: "OPETH")?.quote == "ETH",
+       "splits a short base from an ETH quote without a separator")
+expect(Coin.make(from: "BETH")?.binanceSymbol == "BETHUSDT",
+       "keeps Beacon ETH whole instead of splitting B/ETH")
+expect(Coin.make(from: "WETH")?.binanceSymbol == "WETHUSDT",
+       "keeps wrapped ETH whole instead of splitting W/ETH")
+expect(Coin.make(from: "WBETH")?.binanceSymbol == "WBETHUSDT",
+       "keeps WBETH whole")
+expect(Coin.make(from: "W/BTC")?.base == "W" && Coin.make(from: "W/BTC")?.quote == "BTC",
+       "an explicit separator still allows a one-letter base")
+expect(Coin.make(from: "WBETHETH")?.base == "WBETH" && Coin.make(from: "WBETHETH")?.quote == "ETH",
+       "still splits an explicit wrapped-asset pair")
+for input in ["AR/BTC", "op-eth", "ETH/XYZ", "WBTC", "BETH", "AAPL/USDT", "SPCX/USD1", "W/BTC"] {
+    let coin = Coin.make(from: input)!
+    let restored = Coin.restore(saved: coin.pair)
+    expect(restored?.base == coin.base && restored?.quote == coin.quote,
+           "the saved pair for \(input) restores the same base and quote")
+}
+// 1.1.3 及更早版本保存的无分隔符 binanceSymbol，必须按当时的规则还原。
+for (saved, base, quote) in [
+    ("ARBTC", "AR", "BTC"), ("WBTC", "W", "BTC"), ("WBTCUSDT", "WBTC", "USDT"),
+    ("BETHUSDT", "BETH", "USDT"), ("ETHUSDT", "ETH", "USDT"), ("AAPLUSDT", "AAPL", "USDT"),
+] {
+    let restored = Coin.restore(saved: saved)
+    expect(restored?.base == base && restored?.quote == quote,
+           "restores legacy saved value \(saved) as \(base)/\(quote)")
+}
+expect(Coin.restore(saved: "AR/BTC")?.binanceSymbol == "ARBTC", "restores a saved pair with a separator")
+expect(Coin.restore(saved: "WBTC/USDT")?.binanceSymbol == "WBTCUSDT", "restores a saved wrapped-asset pair")
+expect(Coin.restore(saved: "BTCUSDT")?.coingeckoId == "bitcoin", "keeps the CoinGecko id for a legacy value")
+expect(Coin.restore(saved: "") == nil, "rejects an empty saved value")
+let cjkCoin = Coin.make(from: "币安人生USDT")
+expect(cjkCoin?.base == "币安人生" && cjkCoin?.quote == "USDT", "keeps a CJK base asset")
+expect(cjkCoin.map { URL(string: "https://api.binance.com/api/v3/ticker/24hr?symbol=\($0.urlSymbol)") != nil } == true,
+       "builds a valid URL for a CJK symbol")
+expect(cjkCoin?.urlSymbol == "%E5%B8%81%E5%AE%89%E4%BA%BA%E7%94%9FUSDT",
+       "percent-encodes non-ASCII symbol characters")
+expect(Coin.make(from: "ETHUSDT")?.urlSymbol == "ETHUSDT", "leaves ASCII symbols unchanged")
 expect(Coin.make(from: "ETH/USDT")?.priceLabel("1,234.50") == "$1,234.50",
        "labels a stablecoin-quoted price with $")
 expect(Coin.make(from: "ETH/BTC")?.priceLabel("0.03456") == "0.03456 BTC",
@@ -255,6 +360,15 @@ expect(PriceFormatter.stock(1234.5, locale: enUS) == "1,234.50",
        "formats a stock price with grouping")
 expect(PriceFormatter.stock(1234.5) == "1,234.50",
        "stock formatting defaults to grouped US dollars")
+let ethUSDT = Coin.make(from: "ETH/USDT")!
+let aaplUSDT = Coin.make(from: "AAPLUSDT")!
+expect(ethUSDT.priceLocale.identifier == "en_US" && aaplUSDT.priceLocale.identifier == "en_US",
+       "dollar-labelled crypto and stock prices share the US format")
+expect(Coin.make(from: "ETH/BTC")!.priceLocale.identifier == Locale.current.identifier,
+       "non-dollar quotes follow the system locale")
+expect(ethUSDT.priceLabel(PriceFormatter.crypto(1234.5, base: "ETH", locale: ethUSDT.priceLocale))
+       == aaplUSDT.priceLabel(PriceFormatter.stock(1234.5, locale: aaplUSDT.priceLocale)),
+       "ETH and AAPL render the same dollar format")
 
 // MARK: - Change formatting
 

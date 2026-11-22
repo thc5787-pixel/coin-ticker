@@ -200,6 +200,11 @@ final class Ticker: NSObject {
     private var cryptoUnavailable = false
     /// 行情接口明确返回"代码无效"（例如已下架）。
     private var cryptoInvalid = false
+    /// 现货已停牌：24hr 行情仍返回最后成交价，但不应作为实时价格展示。
+    private var cryptoHalted = false
+    /// 上次确认现货交易状态的 symbol 与时间（停牌检查不必每 30 秒都做）。
+    private var spotStatusChecked: (symbol: String, date: Date)?
+    private static let spotStatusTTL: TimeInterval = 300
     private var lastUpdated: Date?
     private var stockEquitySymbols: Set<String>?
     private var stockEquitySymbolsDate: Date?
@@ -225,8 +230,9 @@ final class Ticker: NSObject {
     override init() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
+        // 新版本保存 "AR/BTC" 形式；1.1.3 及更早版本保存的无分隔符值按当时的规则还原。
         if let saved = UserDefaults.standard.string(forKey: "customCoin"),
-           var coin = Coin.make(from: saved) {
+           var coin = Coin.restore(saved: saved) {
             if let id = UserDefaults.standard.string(forKey: "customCoinId") {
                 coin.coingeckoId = id
             }
@@ -408,8 +414,47 @@ final class Ticker: NSObject {
         }
     }
 
+    /// 先按需确认现货仍在交易，再拉取 24hr 行情。
     private func fetchSpot(coin: Coin, symbol: String, generation: UInt64) {
-        let path = "/api/v3/ticker/24hr?symbol=\(symbol)"
+        if let checked = spotStatusChecked, checked.symbol == symbol,
+           Date().timeIntervalSince(checked.date) < Self.spotStatusTTL {
+            fetchSpotTicker(coin: coin, symbol: symbol, generation: generation)
+            return
+        }
+        let path = "/api/v3/exchangeInfo?symbol=\(coin.urlSymbol)"
+        tryHosts(Self.binanceHosts, path: path, index: 0, generation: generation) { [weak self] result in
+            guard let self else { return }
+            guard self.isCurrentFetch(generation, symbol: symbol, market: coin.market) else {
+                self.finishFetch(generation)
+                return
+            }
+            switch result {
+            case .ok(let dict):
+                switch SpotValidation.classify(status: 200, symbol: symbol, response: dict) {
+                case .notTrading?:
+                    // 停牌状态不缓存：恢复交易后下一轮刷新即可重新显示价格。
+                    self.spotStatusChecked = nil
+                    self.showHalted()
+                    self.finishFetch(generation)
+                    return
+                case .valid?:
+                    self.spotStatusChecked = (symbol, Date())
+                default:
+                    break
+                }
+            case .invalidSymbol:
+                self.showInvalid()
+                self.finishFetch(generation)
+                return
+            case .failed:
+                break  // 状态未知时不阻塞行情，交给 ticker 请求与 CoinGecko 回退处理
+            }
+            self.fetchSpotTicker(coin: coin, symbol: symbol, generation: generation)
+        }
+    }
+
+    private func fetchSpotTicker(coin: Coin, symbol: String, generation: UInt64) {
+        let path = "/api/v3/ticker/24hr?symbol=\(coin.urlSymbol)"
         tryHosts(Self.binanceHosts, path: path, index: 0, generation: generation) { [weak self] result in
             guard let self else { return }
             guard self.isCurrentFetch(generation, symbol: symbol, market: coin.market) else {
@@ -453,7 +498,7 @@ final class Ticker: NSObject {
 
     private enum HostResult {
         case ok([String: Any])
-        /// Binance 明确返回 -1121（Invalid symbol），换域名也不会有别的结果。
+        /// Binance 明确拒绝了该 symbol（-1121 / -1100 等），换域名也不会有别的结果。
         case invalidSymbol
         case failed
     }
@@ -469,7 +514,7 @@ final class Ticker: NSObject {
             guard let self else { return }
             if status == 200, !dict.isEmpty {
                 completion(.ok(dict))
-            } else if status == 400, (dict["code"] as? Int) == -1121 {
+            } else if BinanceResponse.isDefinitiveRejection(status: status, response: dict) {
                 completion(.invalidSymbol)
             } else {
                 self.tryHosts(hosts, path: path, index: index + 1,
@@ -510,7 +555,7 @@ final class Ticker: NSObject {
 
     /// 美股合约行情走 USDⓈ-M 合约接口，失败不回退 CoinGecko。
     private func fetchStockContract(coin: Coin, symbol: String, generation: UInt64) {
-        let path = "/fapi/v1/ticker/24hr?symbol=\(symbol)"
+        let path = "/fapi/v1/ticker/24hr?symbol=\(coin.urlSymbol)"
         tryHosts(Self.stockContractHosts, path: path, index: 0,
                  generation: generation) { [weak self] result in
             guard let self else { return }
@@ -531,16 +576,17 @@ final class Ticker: NSObject {
         }
     }
 
+    @discardableResult
     private func requestHTTP(_ urlString: String, timeout: TimeInterval = 8,
-                             completion: @escaping (Int?, [String: Any]) -> Void) {
+                             completion: @escaping (Int?, [String: Any]) -> Void) -> URLSessionDataTask? {
         guard let url = URL(string: urlString) else {
             DispatchQueue.main.async { completion(nil, [:]) }
-            return
+            return nil
         }
         var req = URLRequest(url: url)
         req.timeoutInterval = timeout
         req.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: req) { data, response, _ in
+        let task = URLSession.shared.dataTask(with: req) { data, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode
             var json: [String: Any] = [:]
             if let data,
@@ -550,7 +596,9 @@ final class Ticker: NSObject {
             // 所有回调都会读写主线程状态（currentCoin / fetchGeneration / UI），
             // 统一回主线程交付，避免 URLSession 后台队列与主线程发生数据竞争。
             DispatchQueue.main.async { completion(status, json) }
-        }.resume()
+        }
+        task.resume()
+        return task
     }
 
     private func request(_ urlString: String, completion: @escaping ([String: Any]) -> Void) {
@@ -575,6 +623,7 @@ final class Ticker: NSObject {
         cryptoQuote = (price, change)
         cryptoUnavailable = false
         cryptoInvalid = false
+        cryptoHalted = false
         lastUpdated = Date()
         render()
     }
@@ -583,6 +632,7 @@ final class Ticker: NSObject {
         cryptoQuote = nil
         cryptoUnavailable = false
         cryptoInvalid = false
+        cryptoHalted = false
         lastUpdated = nil
         render()
     }
@@ -591,6 +641,16 @@ final class Ticker: NSObject {
         cryptoQuote = nil
         cryptoUnavailable = false
         cryptoInvalid = true
+        cryptoHalted = false
+        lastUpdated = nil
+        render()
+    }
+
+    private func showHalted() {
+        cryptoQuote = nil
+        cryptoUnavailable = false
+        cryptoInvalid = false
+        cryptoHalted = true
         lastUpdated = nil
         render()
     }
@@ -600,6 +660,7 @@ final class Ticker: NSObject {
         cryptoQuote = nil
         cryptoUnavailable = true
         cryptoInvalid = false
+        cryptoHalted = false
         lastUpdated = nil
         render()
     }
@@ -610,8 +671,9 @@ final class Ticker: NSObject {
         let title = NSMutableAttributedString()
         let priceText = cryptoQuote.map {
             currentCoin.market == .stockContract
-                ? PriceFormatter.stock($0.price)
-                : PriceFormatter.crypto($0.price, base: currentCoin.base, quote: currentCoin.quote)
+                ? PriceFormatter.stock($0.price, locale: currentCoin.priceLocale)
+                : PriceFormatter.crypto($0.price, base: currentCoin.base, quote: currentCoin.quote,
+                                        locale: currentCoin.priceLocale)
         } ?? ""
 
         if let quote = cryptoQuote {
@@ -636,6 +698,8 @@ final class Ticker: NSObject {
         } else {
             if cryptoInvalid {
                 priceMenuItem.title = String(format: L("alert.error.invalid"), currentCoin.binanceSymbol)
+            } else if cryptoHalted {
+                priceMenuItem.title = String(format: L("alert.error.notTrading"), currentCoin.binanceSymbol)
             } else {
                 priceMenuItem.title = cryptoUnavailable ? L("menu.offline") : L("menu.price.loading")
             }
@@ -725,6 +789,11 @@ final class Ticker: NSObject {
                 completion(.failure(CoinValidationError(
                     message: String(format: L("alert.error.invalid"), coin.binanceSymbol))))
             }
+        case .notTrading:
+            DispatchQueue.main.async {
+                completion(.failure(CoinValidationError(
+                    message: String(format: L("alert.error.notTrading"), coin.binanceSymbol))))
+            }
         case .network:
             DispatchQueue.main.async {
                 completion(.failure(CoinValidationError(message: L("alert.error.network"))))
@@ -735,16 +804,19 @@ final class Ticker: NSObject {
     /// 并行探测所有现货域名：5 秒超时，第一个有结论的结果胜出。
     /// 避免主域名被阻断时逐个等待 8 秒（最坏 40 秒）。
     private func validateSpot(_ coin: Coin, completion: @escaping (MarketValidation) -> Void) {
-        let path = "/api/v3/exchangeInfo?symbol=\(coin.binanceSymbol)"
+        let path = "/api/v3/exchangeInfo?symbol=\(coin.urlSymbol)"
         let symbol = coin.binanceSymbol
         var race = ValidationRace(hostCount: Self.binanceHosts.count)
+        var tasks: [URLSessionDataTask] = []
         for host in Self.binanceHosts {
-            requestHTTP(host + path, timeout: 5) { status, dict in
+            let task = requestHTTP(host + path, timeout: 5) { status, dict in
                 let result = SpotValidation.classify(status: status, symbol: symbol, response: dict)
                 if let resolved = race.record(result) {
+                    tasks.forEach { $0.cancel() }  // 已有结论，取消其余域名的请求
                     completion(resolved)
                 }
             }
+            if let task { tasks.append(task) }
         }
     }
 
@@ -757,27 +829,45 @@ final class Ticker: NSObject {
         }
         stockEquitySymbols = nil
         stockEquitySymbolsDate = nil
-        fetchStockEquitySymbols(for: coin.binanceSymbol, index: 0, completion: completion)
+        fetchStockEquitySymbols(for: coin.binanceSymbol, completion: completion)
     }
 
-    /// 依次尝试 fapi / www 域名获取 exchangeInfo，成功后只缓存 symbol 集合。
-    private func fetchStockEquitySymbols(for symbol: String, index: Int,
+    /// exchangeInfo 有几 MB，慢速网络下 8 秒不够。
+    private static let stockExchangeInfoTimeout: TimeInterval = 15
+
+    /// 备用域名先返回时，最多再等首选 fapi 域名这么久。
+    private static let stockFallbackGrace: TimeInterval = 3
+
+    /// 并行请求 fapi 与 www 镜像的 exchangeInfo，避免逐个等待超时。
+    /// fapi 的结论优先：镜像先返回时，只有 fapi 失败或宽限期结束才采用镜像结果。
+    /// 成功后只缓存 symbol 集合。
+    private func fetchStockEquitySymbols(for symbol: String,
                                          completion: @escaping (MarketValidation) -> Void) {
-        guard index < Self.stockContractHosts.count else {
-            DispatchQueue.main.async { completion(.network) }
-            return
-        }
-        requestHTTP(Self.stockContractHosts[index] + "/fapi/v1/exchangeInfo") { [weak self] status, dict in
-            guard let self else { return }
-            guard status == 200, dict["symbols"] is [[String: Any]] else {
-                self.fetchStockEquitySymbols(for: symbol, index: index + 1, completion: completion)
+        var race = PreferredHostRace<Set<String>>()
+        var tasks: [URLSessionDataTask] = []
+        let handle: (PreferredHostRace<Set<String>>.Outcome) -> Void = { [weak self] outcome in
+            guard case .done(let symbols) = outcome else { return }
+            tasks.forEach { $0.cancel() }
+            guard let symbols else {
+                completion(.network)
                 return
             }
-            let symbols = StockContractQuote.equitySymbols(in: dict)
-            DispatchQueue.main.async {
-                self.cacheStockSymbols(symbols)
-                completion(symbols.contains(symbol) ? .valid : .invalid)
+            self?.cacheStockSymbols(symbols)
+            completion(symbols.contains(symbol) ? .valid : .invalid)
+        }
+        for (index, host) in Self.stockContractHosts.enumerated() {
+            let source: PreferredHostRace<Set<String>>.Source = index == 0 ? .primary : .fallback
+            let task = requestHTTP(host + "/fapi/v1/exchangeInfo",
+                                   timeout: Self.stockExchangeInfoTimeout) { status, dict in
+                let symbols = StockValidation.equitySymbols(status: status, response: dict)
+                handle(race.record(symbols, from: source))
+                if source == .fallback, symbols != nil, !race.finished {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.stockFallbackGrace) {
+                        handle(race.graceExpired())
+                    }
+                }
             }
+            if let task { tasks.append(task) }
         }
     }
 
@@ -799,7 +889,8 @@ final class Ticker: NSObject {
         if coin.market == .stockContract {
             currentCoin.coingeckoId = nil
         }
-        UserDefaults.standard.set(coin.binanceSymbol, forKey: "customCoin")
+        // 保存带分隔符的交易对，重启后原样还原，不再依赖 base/quote 的自动拆分。
+        UserDefaults.standard.set(coin.pair, forKey: "customCoin")
         UserDefaults.standard.set(coin.market == .stockContract ? "stock" : "spot", forKey: "customMarket")
         if let id = currentCoin.coingeckoId {
             UserDefaults.standard.set(id, forKey: "customCoinId")
@@ -827,16 +918,16 @@ final class Ticker: NSObject {
 
     @objc private func openBinance() {
         if currentCoin.market == .stockContract {
-            open(url: "https://www.binance.com/\(webLanguage)/futures/\(currentCoin.binanceSymbol)")
+            open(url: "https://www.binance.com/\(webLanguage)/futures/\(currentCoin.urlSymbol)")
         } else {
-            open(url: "https://www.binance.com/\(webLanguage)/trade/\(currentCoin.tradePath)")
+            open(url: "https://www.binance.com/\(webLanguage)/trade/\(currentCoin.urlTradePath)")
         }
     }
     @objc private func openCoinGecko() {
         if let id = currentCoin.coingeckoId {
             open(url: "https://www.coingecko.com/\(coinGeckoLanguage)/coins/\(id)")
         } else {
-            open(url: "https://www.coingecko.com/\(coinGeckoLanguage)/search?query=\(currentCoin.base)")
+            open(url: "https://www.coingecko.com/\(coinGeckoLanguage)/search?query=\(Coin.urlEscaped(currentCoin.base))")
         }
     }
     @objc private func quit() { NSApplication.shared.terminate(nil) }
